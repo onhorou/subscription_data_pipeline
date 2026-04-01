@@ -14,11 +14,3 @@ if __name__ == "__main__":
         user_name="airflow",
         password_auth="airflow",  # noqa: S106
     )
-
-    create_airflow_connection(
-        connection_id="oltp_target",
-        schema="ltv",
-        host="oltp_target",
-        user_name="airflow",
-        password_auth="airflow",  # noqa: S106
-    )
