@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import uuid
@@ -36,61 +37,42 @@ class GeneratorState:
 state = GeneratorState()
 app = FastAPI(title="Subscription & Payment Generator")
 
-# --- Схемы данных для инициализации ---
-class User(Base):
-    __tablename__ = 'users'
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email = Column(String(255), unique=True)
-    password_hash = Column(String)
-    created_at = Column(DateTime(timezone=True))
-
-class Plan(Base):
-    __tablename__ = 'plans'
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String(100))
-    price_amount = Column(Integer)
-    currency = Column(String(3))
-    duration_days = Column(Integer)
-    provider_type = Column(String(50))
-
-class Subscription(Base):
-    __tablename__ = 'subscriptions'
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'))
-    plan_id = Column(UUID(as_uuid=True), ForeignKey('plans.id'))
-    status = Column(String(20))
-    starts_at = Column(DateTime(timezone=True))
-    ends_at = Column(DateTime(timezone=True))
-    auto_renew = Column(Boolean, default=True)
-    last_order_id = Column(UUID(as_uuid=True))
-
-class PaymentMethod(Base):
-    __tablename__ = 'payment_methods'
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True))
-    type = Column(String(20))
-    provider_name = Column(String(100))
-    gateway_token = Column(String)
-    card_last4 = Column(String(4))
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True))
-
-class Order(Base):
-    __tablename__ = 'orders'
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True))
-    plan_id = Column(UUID(as_uuid=True))
-    payment_method_id = Column(UUID(as_uuid=True))
-    amount = Column(Integer)
-    status = Column(String(20))
-    created_at = Column(DateTime(timezone=True))
-
 # Подключения
 SUB_DB_URL = os.getenv("SUB_DB_URL")
 PAY_DB_URL = os.getenv("PAY_DB_URL")
 
 engine_sub = create_engine(SUB_DB_URL, pool_pre_ping=True)
 engine_pay = create_engine(PAY_DB_URL, pool_pre_ping=True)
+
+_ERR_CODES = ("insufficient_funds", "card_expired", "do_not_honor", "expired_card")
+
+
+def _transactions_from_orders(df_orders: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for _, row in df_orders.iterrows():
+        order_status = row["status"]
+        created = row["created_at"]
+        if order_status == "paid":
+            tx_status = "success"
+            err = None
+            raw = json.dumps({"captured": True, "gateway": "mock"})
+        else:
+            tx_status = random.choice(["declined", "error"])
+            err = random.choice(_ERR_CODES)
+            raw = json.dumps({"status": tx_status, "error_code": err, "gateway": "mock"})
+        rows.append(
+            {
+                "id": uuid.uuid4(),
+                "order_id": row["id"],
+                "external_reference": f"gw_{uuid.uuid4()}",
+                "status": tx_status,
+                "error_code": err,
+                "raw_response": raw,
+                "created_at": created + timedelta(seconds=random.randint(0, 2)),
+            }
+        )
+    return pd.DataFrame(rows)
+
 
 # --- Задача генерации ---
 async def data_generator_task(count: int, batch_size: int = 50):
@@ -139,8 +121,11 @@ async def data_generator_task(count: int, batch_size: int = 50):
                 'last_order_id': df_orders.loc[paid_mask, 'id']
             })
 
+            df_transactions = _transactions_from_orders(df_orders)
+
             df_users.to_sql('users', engine_sub, if_exists='append', index=False, method='multi')
             df_orders.to_sql('orders', engine_pay, if_exists='append', index=False, method='multi')
+            df_transactions.to_sql('transactions', engine_pay, if_exists='append', index=False, method='multi')
             if not df_subs.empty:
                 df_subs.to_sql('subscriptions', engine_sub, if_exists='append', index=False, method='multi')
             
@@ -157,21 +142,6 @@ async def data_generator_task(count: int, batch_size: int = 50):
         logger.info(f"Task finished: total={state.generated_count}")
 
 # --- API ---
-@app.post("/init_db")
-async def init_db():
-    logger.info("Initializing databases...")
-    Base.metadata.create_all(engine_sub)
-    Base.metadata.create_all(engine_pay)
-    
-    with engine_sub.connect() as conn:
-        if conn.execute(text("SELECT count(*) FROM plans")).scalar() == 0:
-            p1, p2 = uuid.uuid4(), uuid.uuid4()
-            conn.execute(text("INSERT INTO plans (id, name, price_amount, duration_days, currency, provider_type) VALUES (:id, :n, :a, :d, :c, :p)"),
-                         [{"id": p1, "n": "Basic", "a": 500, "d": 30, "c": "RUB", "p": "internal"},
-                          {"id": p2, "n": "Pro", "a": 1500, "d": 30, "c": "RUB", "p": "internal"}])
-            conn.commit()
-    return {"status": "ok"}
-
 @app.post("/start")
 async def start(background_tasks: BackgroundTasks, count: int = 100):
     if not state.is_running: 
