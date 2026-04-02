@@ -93,7 +93,7 @@ services:
     ports:
       - "8001:8000"
     environment:
-      SUB_DB_URL: postgresql://postgres:postgres@oltp_source:5432/subscription_db
+      SUB_DB_URL: postgresql://postgres:postgres@oltp_source:5432/subscriptions_db
       PAY_DB_URL: postgresql://postgres:postgres@oltp_source:5432/payments_db
     depends_on:
       oltp_source:
