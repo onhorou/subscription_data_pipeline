@@ -47,9 +47,9 @@ docker compose up -d oltp_source generator
 
 | Сервис | Адрес | Назначение |
 |--------|--------|------------|
-| Генератор | http://localhost:8001 | **Swagger UI** (`/docs`) — интерактивная документация и вызовы API (старт/стоп генерации, статус) |
+| Генератор | http://localhost:8001 | **Swagger UI** http://localhost:8001/docs — интерактивная документация и вызовы API (старт/стоп генерации, статус) |
 | OLTP PostgreSQL | `localhost:5433` | Базы `subscriptions_db` и `payments_db` (пользователь `postgres`, пароль `postgres`) |
-| Airflow UI | http://localhost:8080 | Веб-интерфейс (логин/пароль по умолчанию из переменных `_AIRFLOW_WWW_USER_*`, часто `airflow` / `airflow`) |
+| Airflow UI | http://localhost:8080 | Веб-интерфейс (логин/пароль по умолчанию из переменных `_AIRFLOW_WWW_USER_*`, `airflow` / `airflow`) |
 | PostgreSQL (Airflow) | `localhost:5432` | Только для метаданных Airflow |
 | ClickHouse HTTP | http://localhost:8123 | При необходимости OLAP-запросов |
 

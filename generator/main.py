@@ -45,6 +45,26 @@ engine_sub = create_engine(SUB_DB_URL, pool_pre_ping=True)
 engine_pay = create_engine(PAY_DB_URL, pool_pre_ping=True)
 
 _ERR_CODES = ("insufficient_funds", "card_expired", "do_not_honor", "expired_card")
+_PM_TYPES = ("card", "apple_pay", "google_pay")
+_PROVIDERS = ("Stripe", "CloudPayments", "Tinkoff")
+
+
+def _payment_methods_for_users(user_ids: list, created_series: pd.Series) -> pd.DataFrame:
+    rows = []
+    for i, uid in enumerate(user_ids):
+        rows.append(
+            {
+                "id": uuid.uuid4(),
+                "user_id": uid,
+                "type": random.choice(_PM_TYPES),
+                "provider_name": random.choice(_PROVIDERS),
+                "gateway_token": f"tok_{uuid.uuid4().hex[:24]}",
+                "card_last4": f"{random.randint(0, 9999):04d}" if random.random() < 0.85 else None,
+                "is_active": True,
+                "created_at": created_series.iloc[i],
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def _transactions_from_orders(df_orders: pd.DataFrame) -> pd.DataFrame:
@@ -98,6 +118,8 @@ async def data_generator_task(count: int, batch_size: int = 50):
                 'created_at': [now - timedelta(minutes=random.randint(10, 5000)) for _ in range(curr_batch)]
             })
 
+            df_payment_methods = _payment_methods_for_users(user_ids, df_users["created_at"])
+
             sel_plans = plans.sample(n=curr_batch, replace=True).reset_index(drop=True)
             statuses = random.choices(['paid', 'failed'], weights=[0.8, 0.2], k=curr_batch)
             
@@ -105,6 +127,7 @@ async def data_generator_task(count: int, batch_size: int = 50):
                 'id': [uuid.uuid4() for _ in range(curr_batch)],
                 'user_id': user_ids,
                 'plan_id': sel_plans['id'],
+                'payment_method_id': df_payment_methods['id'],
                 'amount': sel_plans['price_amount'],
                 'status': statuses,
                 'created_at': df_users['created_at'] + timedelta(seconds=30)
@@ -124,6 +147,7 @@ async def data_generator_task(count: int, batch_size: int = 50):
             df_transactions = _transactions_from_orders(df_orders)
 
             df_users.to_sql('users', engine_sub, if_exists='append', index=False, method='multi')
+            df_payment_methods.to_sql('payment_methods', engine_pay, if_exists='append', index=False, method='multi')
             df_orders.to_sql('orders', engine_pay, if_exists='append', index=False, method='multi')
             df_transactions.to_sql('transactions', engine_pay, if_exists='append', index=False, method='multi')
             if not df_subs.empty:
