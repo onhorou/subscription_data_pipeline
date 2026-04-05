@@ -115,6 +115,9 @@ async def data_generator_task(count: int, batch_size: int = 50):
                 'id': user_ids,
                 'email': [fake.unique.email() for _ in range(curr_batch)],
                 'password_hash': 'hash',
+                'first_name': [fake.first_name() for _ in range(curr_batch)],
+                'last_name': [fake.last_name() for _ in range(curr_batch)],
+                'birthday': [fake.date_of_birth(minimum_age=18, maximum_age=80) for _ in range(curr_batch)],
                 'created_at': [now - timedelta(minutes=random.randint(10, 5000)) for _ in range(curr_batch)]
             })
 
